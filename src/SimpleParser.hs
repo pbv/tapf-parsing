@@ -1,13 +1,13 @@
 {-
   Simple library for teaching parser combinators
 
-  NB: for practical use switch to an "industrial" library instead
-  e.g Parsec: https://hackage.haskell.org/package/parsec-3.1.13.0
+  NB: for real application an Parsec instead of this
+  (https://hackage.haskell.org/package/parsec)
 
   Pedro Vasconcelos 2018
 -}
 
-module Parser where
+module SimpleParser where
 
 import Data.Char(isSpace, isAlpha, isAlphaNum, isDigit, ord)
 import Control.Monad
@@ -30,14 +30,13 @@ instance Monad Parser where
 
 -----------------------------------------------------------
 -- Since GHC > 7.8 every instance of Monad must also be
--- an instance of the `Functor` and `Applicative` classes;
--- we provide just "dummy" instances for now
+-- an instance of the `Functor` and `Applicative` classes
 instance Functor Parser where
-  fmap = error "fmap: not yet implemented"
+  fmap f p = do x<-p; return (f x)
   
 instance Applicative Parser where
-  pure = error "pure: not yet implemented"
-  (<*>) = error "<*>: not yet implemented"
+  pure = return
+  p <*> q = do f<-p; x<-q; return (f x)
 -----------------------------------------------------------
 
 
@@ -95,18 +94,18 @@ many p = many1 p <|> return []
 many1 :: Parser a -> Parser [a]
 many1 p = do { a<-p; as<-many p; return (a:as) }
 
--- | parse a string of spaces, tabs or newlines
+-- | parse a string of spaces or tabs 
 spaces :: Parser String
-spaces = many (satisfy isSpace)
+spaces = many (satisfy (\c -> c==' ' || c=='\t'))
 
 -- | parse  using a parser `p`
--- ignoring any initial spaces
-token :: Parser a -> Parser a
-token p = spaces >> p
+-- ignoring trailing spaces
+lexeme :: Parser a -> Parser a
+lexeme p = do v<-p; spaces; return v
 
 -- | parse some symbol e.g. operator or parenthesis
 symbol :: String -> Parser String
-symbol s = token (string s) 
+symbol s = lexeme (string s) 
 
 -- | accept many `p' separated by `sep'
 sepBy :: Parser a -> Parser b -> Parser [a]
@@ -124,13 +123,13 @@ p `sepBy1` sep = do
 
 -- | integer literals
 integer :: Parser Integer
-integer = token $ do
+integer = lexeme $ do
   s <- many1 (satisfy isDigit)
   return (read s)
 
 -- | string literals
 stringLit :: Parser String
-stringLit = token $ do
+stringLit = lexeme $ do
   char '\"'
   s <- many (satisfy (/='\"'))
   char '\"'
@@ -147,11 +146,15 @@ row :: Parser [Item]
 row = item `sepBy` comma
 
 comma :: Parser Char
-comma = token (char ',')
+comma = lexeme (char ',')
 
 -- | parse many rows terminated by newlines
 rows :: Parser [[Item]]
-rows = many1 (do r <- row; char '\n'; return r)
+rows = many1 (do r<-row; newline; return r)
+
+newline :: Parser Char
+newline = char '\n'
+
 
 ------------------------------------------------------
 -- Example 2: parse arithmetic expressions
