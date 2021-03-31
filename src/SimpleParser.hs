@@ -9,7 +9,7 @@
 
 module SimpleParser where
 
-import Data.Char(isSpace, isAlpha, isAlphaNum, isDigit, ord)
+import Data.Char(isDigit)
 import Control.Monad
 
 -- | type for parser for values of type `a'
@@ -33,7 +33,7 @@ instance Monad Parser where
 -- an instance of the `Functor` and `Applicative` classes
 instance Functor Parser where
   fmap f p = do x<-p; return (f x)
-  
+
 instance Applicative Parser where
   pure = return
   p <*> q = do f<-p; x<-q; return (f x)
@@ -53,7 +53,9 @@ p +++ q = Parser (\cs -> runParser p cs ++ runParser q cs)
 
 -- | deterministic choice
 (<|>) :: Parser a -> Parser a -> Parser a
-p <|> q = Parser (\cs -> take 1 (runParser (p +++ q) cs))
+p <|> q = Parser (\cs -> case runParser p cs of
+                           [] -> runParser q cs
+                           (x:_) -> [x])
 
 -- | accept a single next character
 next :: Parser Char
@@ -72,9 +74,9 @@ satisfy :: (Char -> Bool) -> Parser Char
 satisfy p = do
   c <- next;
   if p c then return c
-    else empty 
+    else empty
 
--- | accept a specific character 
+-- | accept a specific character
 char :: Char -> Parser Char
 char c = satisfy (==c)
 
@@ -84,7 +86,7 @@ string "" = return ""
 string (c:cs) = do
   char c
   string cs
-  return (c:cs) 
+  return (c:cs)
 
 -- | repeat a parser zero or more times
 many :: Parser a -> Parser [a]
@@ -94,7 +96,7 @@ many p = many1 p <|> return []
 many1 :: Parser a -> Parser [a]
 many1 p = do { a<-p; as<-many p; return (a:as) }
 
--- | parse a string of spaces or tabs 
+-- | parse a string of spaces or tabs
 spaces :: Parser String
 spaces = many (satisfy (\c -> c==' ' || c=='\t'))
 
@@ -105,7 +107,7 @@ lexeme p = do v<-p; spaces; return v
 
 -- | parse some symbol e.g. operator or parenthesis
 symbol :: String -> Parser String
-symbol s = lexeme (string s) 
+symbol s = lexeme (string s)
 
 -- | accept many `p' separated by `sep'
 sepBy :: Parser a -> Parser b -> Parser [a]
@@ -117,8 +119,9 @@ p `sepBy1` sep = do
   as <- many (sep >> p)
   return (a:as)
 
+
 -------------------------------------------------------------
--- Example 1: parse rows of comma-separated values (CSV) 
+-- Example 1: parse rows of comma-separated values (CSV)
 -------------------------------------------------------------
 
 -- | integer literals
@@ -135,11 +138,15 @@ stringLit = lexeme $ do
   char '\"'
   return s
 
-type Item = Either Integer String 
+data Item
+  = Number Integer
+  | Text String
+  deriving Show
 
 item :: Parser Item
-item = do n <- integer; return (Left n)
-       <|> do s <- stringLit; return (Right s)
+item = do n <- integer; return (Number n)
+       <|>
+       do s <- stringLit; return (Text s)
 
 -- | parse a single row
 row :: Parser [Item]
@@ -162,15 +169,18 @@ newline = char '\n'
 
 expr :: Parser Integer
 expr  = term `chainl1` addop
-  
-term = factor `chainl1` mulop       
+
+term = factor `chainl1` mulop
 
 factor = integer <|>  parens expr
 
 addop = do symbol "+"; return (+)
-        <|> do symbol "-"; return (-) 
+        <|>
+        do symbol "-"; return (-)
+
 mulop = do symbol "*"; return (*)
-        <|> do symbol "/"; return div 
+        <|>
+        do symbol "/"; return div
 
 -- | accept parenthesis around a parser
 parens :: Parser a -> Parser a
@@ -180,7 +190,7 @@ parens p = do
   symbol ")"
   return a
 
--- | chain applications of a parser 
+-- | chain applications of a parser
 -- using a left-associative operator
 chainl :: Parser a -> Parser (a -> a -> a) -> a -> Parser a
 chainl p op a = (p `chainl1` op) <|> return a
@@ -191,7 +201,3 @@ chainl1 p op = do a <- p; cont a
                      b <- p
                      cont (f a b)
                   <|> return a
-
-
-
-
