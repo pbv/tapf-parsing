@@ -166,22 +166,27 @@ newline = char '\n'
 -- Example 2: parse arithmetic expressions
 ------------------------------------------------------
 term :: Parser Integer
+term = factor `chainl1` mulop
+
+{-
 term = do t<-factor; cont t
   where
   cont t1 = do op <- mulop
                t2 <- factor
                cont (t1 `op` t2)
             <|> return t1
-
+-}
 
 expr :: Parser Integer
+expr = term `chainl1` addop
+{-
 expr = do t<-term; cont t
       where
         cont t1 = do op <- addop
                      t2 <- term
                      cont (t1 `op` t2)
                   <|> return t1
-
+-}
 
 factor :: Parser Integer
 factor = integer <|>  parens expr

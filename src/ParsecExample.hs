@@ -4,52 +4,82 @@
 -}
 module ParsecExample where
 
-import Text.Parsec 
-import Data.Char (isDigit)
+import Text.Parsec
+import qualified Text.Parsec.Token as P
+import Text.Parsec.Language (haskellDef)
+import Data.Char (isDigit, isAlpha)
+
+
 
 -- | specialize the generic Parsec parser type for a string parser
 type Parser a = Parsec String () a
 
--- | accept trailing whitespace after some parser
-lexeme :: Parser a -> Parser a
-lexeme p = do v <- p; spaces; return v
+data Expr = Var String
+          | Number Integer
+          | Op (Integer -> Integer -> Integer) Expr Expr
+          | Let String Expr Expr
 
--- | parser an operator or parenthesis 
-symbol :: String -> Parser String
-symbol s = lexeme (string s) <?> s
+type Env = [(String, Integer)]
 
--- | accept parenthesis around a parser
-parens :: Parser a -> Parser a
-parens p = do
-  symbol "("
-  a <- p
-  symbol ")"
-  return a
+eval :: Expr -> Env -> Integer
+eval (Number n) env = n
+eval (Var x) env = case lookup x env of
+              Just v -> v
+              Nothing -> error "undefined variable"
+eval (Op f e1 e2) env = eval e1 env `f` eval e2 env
+eval (Let x e1 e2) env = let v1 = eval e1 env
+                          in eval e2 ((x,v1):env)
+
+-- The lexer
+lexer       = P.makeTokenParser haskellDef
+
+parens      = P.parens lexer
+identifier  = P.identifier lexer
+reserved    = P.reserved lexer
+integer     = P.integer lexer
+symbol      = P.symbol lexer
+lexeme      = P.lexeme lexer
+reservedOp    = P.reservedOp lexer
 
 -- | expression parser
-expr :: Parser Integer
-expr    = term   `chainl1` addop
+expr :: Parser Expr
+expr    = term `chainl1` addop
 term    = factor `chainl1` mulop
-factor  = integer <|>  parens expr
+factor  = variable <|> let_expr <|> integer_expr <|> parens expr
 
 -- | integer literal
-integer :: Parser Integer
-integer = lexeme (do 
-  s <- many1 (satisfy isDigit)
-  return (read s))
-  <?> "integer"
+integer_expr :: Parser Expr
+integer_expr = lexeme (do
+  n <- integer
+  return (Number n))
+  <?> "number"
+
+variable :: Parser Expr
+variable = do x <- identifier; return (Var x)
+
+let_expr :: Parser Expr
+let_expr = do
+  reserved "let"
+  x <- identifier
+  reservedOp "="
+  e1 <- expr
+  reserved "in"
+  e2 <- expr
+  return (Let x e1 e2)
 
 -- | operators
-mulop, addop :: Parser (Integer -> Integer -> Integer)
-mulop   =   do symbol "*"; return (*)  
-            <|> do symbol "/"; return (div) 
+mulop, addop :: Parser (Expr -> Expr -> Expr)
+mulop   =   do reservedOp "*"; return (Op (*))
+            <|>
+            do reservedOp "/"; return (Op div)
 
-addop   =   do symbol "+"; return (+) 
-            <|> do symbol "-"; return (-) 
+addop   =   do reservedOp "+"; return (Op (+))
+            <|>
+            do reservedOp "-"; return (Op (-))
 
 
 -- | a top-level expression must consume all input
-topExpr :: Parser Integer
+topExpr :: Parser Expr
 topExpr = do spaces; v <- expr; eof; return v
 
 -- | read-eval-print loop for the calculator
@@ -59,5 +89,5 @@ readEvalLoop = do
   s <- getLine
   case parse topExpr "stdin" s of
     Left err -> print err
-    Right val -> putStrLn ("= "++ show val)
+    Right expr -> putStrLn ("= "++ show (eval expr []))
   readEvalLoop
