@@ -9,7 +9,7 @@
 
 module SimpleParser where
 
-import Data.Char(isDigit)
+import Data.Char(isDigit, isSpace)
 import Control.Monad
 
 -- | type for parser for values of type `a'
@@ -98,16 +98,15 @@ many1 p = do { a<-p; as<-many p; return (a:as) }
 
 -- | parse a string of spaces or tabs
 spaces :: Parser String
-spaces = many (satisfy (\c -> c==' ' || c=='\t'))
+spaces = many (satisfy isSpace)
 
--- | parse  using a parser `p`
--- ignoring trailing spaces
-lexeme :: Parser a -> Parser a
-lexeme p = do v<-p; spaces; return v
+-- | ignore leading spaces then apply a parser
+token :: Parser a -> Parser a
+token p = spaces >> p
 
 -- | parse some symbol e.g. operator or parenthesis
 symbol :: String -> Parser String
-symbol s = lexeme (string s)
+symbol s = token (string s)
 
 -- | accept many `p' separated by `sep'
 sepBy :: Parser a -> Parser b -> Parser [a]
@@ -126,13 +125,13 @@ p `sepBy1` sep = do
 
 -- | integer literals
 integer :: Parser Integer
-integer = lexeme $ do
+integer = token $ do
   s <- many1 (satisfy isDigit)
   return (read s)
 
 -- | string literals
 stringLit :: Parser String
-stringLit = lexeme $ do
+stringLit = token $ do
   char '\"'
   s <- many (satisfy (/='\"'))
   char '\"'
@@ -153,7 +152,7 @@ row :: Parser [Item]
 row = item `sepBy` comma
 
 comma :: Parser Char
-comma = lexeme (char ',')
+comma = token (char ',')
 
 -- | parse many rows terminated by newlines
 rows :: Parser [[Item]]
@@ -166,12 +165,25 @@ newline = char '\n'
 ------------------------------------------------------
 -- Example 2: parse arithmetic expressions
 ------------------------------------------------------
+term :: Parser Integer
+term = do t<-factor; cont t
+  where
+  cont t1 = do op <- mulop
+               t2 <- factor
+               cont (t1 `op` t2)
+            <|> return t1
+
 
 expr :: Parser Integer
-expr  = term `chainl1` addop
+expr = do t<-term; cont t
+      where
+        cont t1 = do op <- addop
+                     t2 <- term
+                     cont (t1 `op` t2)
+                  <|> return t1
 
-term = factor `chainl1` mulop
 
+factor :: Parser Integer
 factor = integer <|>  parens expr
 
 addop = do symbol "+"; return (+)
@@ -189,6 +201,13 @@ parens p = do
   a <- p
   symbol ")"
   return a
+
+{-
+  -- alternatives using chainl1
+  expr, term :: Parser Integer
+  expr  = term `chainl1` addop
+  term = factor `chainl1` mulop
+-}
 
 -- | chain applications of a parser
 -- using a left-associative operator
